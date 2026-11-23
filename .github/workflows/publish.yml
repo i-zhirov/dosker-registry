@@ -118,6 +118,12 @@ jobs:
           dosker registry check-final "$reference"
 
           release_dir="$RUNNER_TEMP/release/$owner-$name"
+          tag="$owner-$name"
+          mkdir -p "$release_dir"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+              --pattern '*.json' --dir "$release_dir" --clobber
+          fi
           python3 scripts/publish.py \
             --repo . \
             --image "$owner/$name" \
@@ -132,7 +138,6 @@ jobs:
             echo "nothing to publish for $image"
             exit 0
           fi
-          tag="$owner-$name"
           if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
               --title "$owner/$name" --notes "Image release for $owner/$name"

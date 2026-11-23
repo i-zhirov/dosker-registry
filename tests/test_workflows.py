@@ -28,6 +28,14 @@ class SharedSiteWorkflowTest(unittest.TestCase):
         paths = text.split("paths:", 1)[1].split("workflow_dispatch:", 1)[0]
         self.assertIn('".github/workflows/site.yml"', paths)
 
+    def test_publish_downloads_existing_sidecars_before_publishing(self):
+        text = read_workflow("publish.yml")
+        build = text.split("release_dir=", 1)[1]
+        self.assertLess(
+            build.index('gh release download "$tag"'),
+            build.index("scripts/publish.py"),
+        )
+
     def test_takedown_calls_the_site_workflow(self):
         text = read_workflow("takedown.yml")
         self.assertIn("uses: ./.github/workflows/site.yml", text)

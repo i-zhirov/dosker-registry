@@ -1,0 +1,82 @@
+name: takedown
+
+on:
+  workflow_dispatch:
+    inputs:
+      namespace:
+        description: Image namespace
+        required: true
+      name:
+        description: Image name
+        required: true
+      digest:
+        description: Revoked manifest digest
+        required: true
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  takedown:
+    name: Delete the revoked asset
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Check the revocation record
+        run: |
+          python3 scripts/takedown.py \
+            --check \
+            --repo . \
+            --namespace "${{ inputs.namespace }}" \
+            --name "${{ inputs.name }}" \
+            --digest "${{ inputs.digest }}"
+
+      - name: Download the sidecars
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.namespace }}-${{ inputs.name }}"
+          mkdir -p "$RUNNER_TEMP/sidecars"
+          gh release download "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern '*.json' \
+            --dir "$RUNNER_TEMP/sidecars" \
+            --clobber
+
+      - name: Read the asset names
+        id: names
+        run: |
+          set -euo pipefail
+          names="$(python3 scripts/takedown.py \
+            --names \
+            --assets "$RUNNER_TEMP/sidecars" \
+            --digest "${{ inputs.digest }}")"
+          echo "tar=${names%%$'\t'*}" >> "$GITHUB_OUTPUT"
+
+      - name: Delete the tar
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.namespace }}-${{ inputs.name }}"
+          tar="${{ steps.names.outputs.tar }}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[].name' | grep -Fxq "$tar"; then
+            gh release delete-asset "$tag" "$tar" --repo "$GITHUB_REPOSITORY" --yes
+          else
+            echo "asset already absent: $tar"
+          fi
+
+  deploy:
+    name: Redeploy Pages
+    needs: takedown
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/site.yml

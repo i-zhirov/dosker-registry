@@ -27,8 +27,9 @@ contain `C:\DOSKER\NOTICE.TXT`.
 ## Abandonware claim and takedown
 
 An abandonware claim is a good-faith statement. It does not transfer ownership.
-A rights holder can request removal at any time. Send the request with the image
-name and the evidence to the maintainers.
+A rights holder can request removal at any time through
+<https://github.com/i-zhirov/dosker-registry/issues> with the image name,
+digest, and evidence. A maintainer acknowledges the request within 7 days.
 
 The maintainer records the request in `revoked.toml`:
 
@@ -44,9 +45,18 @@ decided_at = "2026-11-22T12:00:00Z"
 ```
 
 A revoked digest is removed from every tag and version list. The next site
-deploy omits it. Local copies on user machines stay unchanged. The asset
-deletion step belongs to the takedown workflow and is out of scope for the first
-release.
+deploy omits it. A maintainer then dispatches the `takedown` workflow with the
+namespace, name, and digest. The workflow checks the record, deletes the image
+tar from the Release, keeps the version sidecar, and redeploys Pages. A later
+publish skips a revoked current digest, so the tar is not restored. Local
+copies on user machines stay unchanged.
+
+## Signing
+
+Registry release assets are unsigned in the first version. The client verifies
+the SHA-256 digest of every manifest, config, and tar before it installs an
+image, so a tampered asset fails. Automated signing and attestation are
+deferred; this decision covers the first release.
 
 ## GPL source offer
 

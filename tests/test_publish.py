@@ -95,6 +95,28 @@ class PublishTests(unittest.TestCase):
         self.assertIn("already published", result.stdout)
         self.assertTrue(tar.is_file())
 
+    def test_a_revoked_current_digest_is_not_republished(self) -> None:
+        self.assertEqual(self.run_publish().returncode, 0)
+        sidecar = json.loads((self.release / "1.0.0.json").read_text(encoding="utf-8"))
+        tar = next(self.release.glob("*.tar"))
+        tar.unlink()
+        repo = self.base / "repo"
+        repo.mkdir()
+        (repo / "revoked.toml").write_text(
+            "schema = 1\n"
+            "[[revoked]]\n"
+            'namespace = "i-zhirov"\n'
+            'name = "hello-dos"\n'
+            f'digest = "{sidecar["digest"]}"\n'
+            'reason = "test"\n'
+            'decided_at = "2026-11-23T00:00:00Z"\n',
+            encoding="utf-8",
+        )
+        result = self.run_publish("1.0.0", None, "--repo", str(repo))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("skipping revoked", result.stdout)
+        self.assertFalse(tar.exists())
+
     def test_a_dry_run_writes_nothing(self) -> None:
         result = self.run_publish("1.0.0", None, "--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)

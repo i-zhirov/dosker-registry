@@ -13,6 +13,7 @@ import json
 import pathlib
 import shutil
 import sys
+import tomllib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
@@ -31,8 +32,29 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--asset", type=pathlib.Path, required=True)
     parser.add_argument("--release-dir", type=pathlib.Path, required=True)
     parser.add_argument("--published-at", required=True)
+    parser.add_argument(
+        "--repo",
+        type=pathlib.Path,
+        default=pathlib.Path(__file__).resolve().parents[1],
+        help="registry checkout root",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args(argv)
+
+
+def is_revoked(repo: pathlib.Path, namespace: str, name: str, digest: str) -> bool:
+    path = repo / "revoked.toml"
+    if not path.is_file():
+        return False
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    for record in data.get("revoked", []):
+        if (
+            record.get("namespace"),
+            record.get("name"),
+            record.get("digest"),
+        ) == (namespace, name, digest):
+            return True
+    return False
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -44,6 +66,10 @@ def main(argv: list[str] | None = None) -> int:
             args.asset, asset_digest, len(data)
         )
         del manifest_bytes
+        namespace, name = args.image.split("/", 1)
+        if is_revoked(args.repo, namespace, name, manifest_digest):
+            print(f"skipping revoked {args.image} {manifest_digest}")
+            return 0
         entries = json.loads(config_bytes).get("licenses")
         if not isinstance(entries, list):
             raise SiteError(f"image {args.image} has no license list")

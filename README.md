@@ -85,7 +85,8 @@ the manifest digest, the config digest, and the license summary from the tar.
 - An image that needs a notice must contain `C:\DOSKER\NOTICE.TXT`.
 - Only maintainers change `namespaces.toml` and `revoked.toml`.
 
-Read [`POLICY.md`](POLICY.md) before you submit an image.
+Read [`POLICY.md`](POLICY.md) before you submit an image. It names the
+takedown contact, the 7-day response window, and the unsigned-asset decision.
 
 ## Schema IDs
 

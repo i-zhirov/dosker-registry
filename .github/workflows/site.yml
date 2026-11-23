@@ -1,0 +1,76 @@
+name: site
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+env:
+  REGISTRY_URL: "https://i-zhirov.github.io/doskerfile-registry"
+
+jobs:
+  site:
+    name: Generate and deploy Pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install schema validator
+        run: pip install --disable-pip-version-check check-jsonschema
+
+      - name: Download the release inventory and assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/assets"
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases" | jq 'add // []' > "$RUNNER_TEMP/releases.json"
+          while IFS= read -r tag; do
+            mkdir -p "$RUNNER_TEMP/assets/$tag"
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+              --dir "$RUNNER_TEMP/assets/$tag" --clobber
+          done < <(gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName --jq '.[].tagName')
+
+      - name: Generate the site
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/generate_site.py \
+            --repo . \
+            --releases "$RUNNER_TEMP/releases.json" \
+            --assets "$RUNNER_TEMP/assets" \
+            --out _site \
+            --epoch "$(git log -1 --format=%ct)" \
+            --registry-url "$REGISTRY_URL"
+
+      - name: Check the generated documents
+        shell: bash
+        run: scripts/check_site.sh _site
+
+      - name: Write the custom domain
+        if: vars.REGISTRY_DOMAIN != ''
+        shell: bash
+        run: echo "${{ vars.REGISTRY_DOMAIN }}" > _site/CNAME
+
+      - name: Upload the Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

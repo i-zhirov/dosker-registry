@@ -149,6 +149,28 @@ class GenerateSiteErrorTests(unittest.TestCase):
             (self.out / "v1" / "i-zhirov" / "hello-dos" / "versions" / f"sha256-{hex_digest}").exists()
         )
 
+    def test_a_revoked_current_version_omits_the_image_with_older_live_versions(self) -> None:
+        assets, _ = oci.build_version_assets(
+            self.assets,
+            "i-zhirov-hello-dos",
+            "0.9.0",
+            "i-zhirov/hello-dos:0.9.0",
+            [oci.AGENT],
+            "2026-11-22T12:00:00Z",
+        )
+        inventory = self.inventory()
+        self.release_assets(inventory, "i-zhirov-hello-dos").extend(assets)
+        self.write_inventory(inventory)
+        sidecar = self.assets / "i-zhirov-hello-dos" / "1.0.0.json"
+        current = json.loads(sidecar.read_text(encoding="utf-8"))["digest"]
+        self.revoke("i-zhirov", "hello-dos", current)
+
+        self.generate()
+
+        catalog = json.loads((self.out / "index.json").read_text(encoding="utf-8"))
+        self.assertEqual([image["name"] for image in catalog["images"]], ["old-game"])
+        self.assertFalse((self.out / "v1" / "i-zhirov" / "hello-dos").exists())
+
     def test_an_image_with_no_live_version_is_omitted(self) -> None:
         sidecar = self.assets / "i-zhirov-old-game" / "1.0.0.json"
         digest = json.loads(sidecar.read_text(encoding="utf-8"))["digest"]

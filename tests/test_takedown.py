@@ -1,0 +1,85 @@
+"""The takedown helper."""
+
+from __future__ import annotations
+
+import json
+import pathlib
+import subprocess
+import sys
+import tempfile
+import unittest
+
+from tests import support
+
+DIGEST = "sha256:" + "a" * 64
+OTHER = "sha256:" + "c" * 64
+ASSET = "sha256:" + "b" * 64
+
+
+class TakedownTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = pathlib.Path(self.directory.name)
+        self.repo = self.root / "repo"
+        self.repo.mkdir()
+        (self.repo / "revoked.toml").write_text(
+            "schema = 1\n"
+            "[[revoked]]\n"
+            'namespace = "i-zhirov"\n'
+            'name = "hello-dos"\n'
+            f'digest = "{DIGEST}"\n'
+            'reason = "test"\n'
+            'decided_at = "2026-11-23T00:00:00Z"\n',
+            encoding="utf-8",
+        )
+        self.assets = self.root / "assets"
+        self.assets.mkdir()
+        (self.assets / "1.0.0.json").write_text(
+            json.dumps({"version": "1.0.0", "digest": DIGEST, "asset_digest": ASSET}),
+            encoding="utf-8",
+        )
+
+    def run_helper(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(support.ROOT / "scripts" / "takedown.py"), *args],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_check_finds_a_record(self) -> None:
+        result = self.run_helper(
+            "--check", "--repo", str(self.repo), "--namespace", "i-zhirov",
+            "--name", "hello-dos", "--digest", DIGEST,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("recorded", result.stdout)
+
+    def test_check_rejects_a_missing_record(self) -> None:
+        result = self.run_helper(
+            "--check", "--repo", str(self.repo), "--namespace", "i-zhirov",
+            "--name", "hello-dos", "--digest", OTHER,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("open a pull request first", result.stderr)
+
+    def test_names_finds_the_tar_and_sidecar(self) -> None:
+        result = self.run_helper("--names", "--assets", str(self.assets), "--digest", DIGEST)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), f"{ASSET}.tar\t1.0.0.json")
+
+    def test_names_rejects_a_missing_sidecar(self) -> None:
+        result = self.run_helper("--names", "--assets", str(self.assets), "--digest", OTHER)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("no sidecar", result.stderr)
+
+    def test_a_retry_still_names_the_sidecar(self) -> None:
+        first = self.run_helper("--names", "--assets", str(self.assets), "--digest", DIGEST)
+        second = self.run_helper("--names", "--assets", str(self.assets), "--digest", DIGEST)
+        self.assertEqual(first.stdout, second.stdout)
+        self.assertTrue((self.assets / "1.0.0.json").is_file())
+
+
+if __name__ == "__main__":
+    unittest.main()

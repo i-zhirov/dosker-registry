@@ -24,8 +24,8 @@ concurrency:
 
 env:
   # Must be a release that contains `registry validate` and `registry check-final`.
-  DOSKER_VERSION: "0.1.3"
-  DOSKER_RELEASE: "https://github.com/i-zhirov/dosker/releases/download/v0.1.3"
+  DOSKER_VERSION: "0.1.4"
+  DOSKER_RELEASE: "https://github.com/i-zhirov/dosker/releases/download/v0.1.4"
 
 jobs:
   changes:

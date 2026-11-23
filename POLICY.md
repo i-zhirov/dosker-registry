@@ -72,7 +72,7 @@ hide or override it.
 ## DOSKER agent license
 
 The DOSKER agent is dual-licensed under `MIT OR Apache-2.0`. Registry CI
-builds `DOSKER.EXE` from the pinned `i-zhirov/dosker` source tag `v0.1.3` with
+builds `DOSKER.EXE` from the pinned `i-zhirov/dosker` source tag `v0.1.4` with
 OpenWatcom; the `dosker` release itself does not carry the agent.
 
 ## First image

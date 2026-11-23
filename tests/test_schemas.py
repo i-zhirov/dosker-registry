@@ -71,7 +71,7 @@ class SchemaTests(unittest.TestCase):
         self.assertNotIn("pages: write", text)
         self.assertNotIn("dosker build", text)
         self.assertNotIn("dosker run", text)
-        self.assertIn('DOSKER_VERSION: "0.1.3"', text)
+        self.assertIn('DOSKER_VERSION: "0.1.4"', text)
         self.assertIn("dosker registry validate", text)
 
     def test_the_local_checker_uses_every_schema(self) -> None:

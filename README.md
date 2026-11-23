@@ -1,7 +1,9 @@
 # DOSker registry
 
 This repository holds the text that defines the DOSker image registry. It is a
-separate repository from the `dosker` code repository.
+separate repository from the `dosker` code repository. The live site is
+<https://i-zhirov.github.io/dosker-registry/>; the pinned DOSKer release is
+`0.1.4`.
 
 ## Layout
 
@@ -13,7 +15,8 @@ schemas/                     the six JSON schemas
 site/                        HTML templates and CSS
 scripts/                     validation, generation, and publish helpers
 tests/                       unit tests and fixtures
-.github/workflows/           validate.yml and publish.yml
+.github/workflows/           validate, publish, site, and takedown
+.github/actions/             prepare-image-base
 ```
 
 `images/<owner>/<name>/registry.toml`:

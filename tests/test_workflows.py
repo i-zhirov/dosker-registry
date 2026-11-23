@@ -36,6 +36,12 @@ class SharedSiteWorkflowTest(unittest.TestCase):
             build.index("scripts/publish.py"),
         )
 
+    def test_takedown_stamps_the_sidecar(self):
+        text = read_workflow("takedown.yml")
+        self.assertIn("--stamp", text)
+        self.assertIn("gh release upload", text)
+        self.assertIn("Download the tar", text)
+
     def test_takedown_calls_the_site_workflow(self):
         text = read_workflow("takedown.yml")
         self.assertIn("uses: ./.github/workflows/site.yml", text)

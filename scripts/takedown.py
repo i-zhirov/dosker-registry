@@ -4,10 +4,16 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
 import sys
 import tomllib
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
+from content import ContentError, content_digest  # noqa: E402
+from generate_site import compact_json, read_archive  # noqa: E402
 
 
 class TakedownError(Exception):
@@ -19,6 +25,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--check", action="store_true", help="verify the revoked record")
     mode.add_argument("--names", action="store_true", help="print the tar and sidecar names")
+    mode.add_argument("--stamp", action="store_true", help="add the content digest to the sidecar")
     parser.add_argument(
         "--repo",
         type=pathlib.Path,
@@ -26,6 +33,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="registry checkout root",
     )
     parser.add_argument("--assets", type=pathlib.Path, help="directory of downloaded sidecars")
+    parser.add_argument("--asset", type=pathlib.Path, help="downloaded image tar for --stamp")
     parser.add_argument(
         "--release-assets",
         type=pathlib.Path,
@@ -93,6 +101,38 @@ def sidecar_names(
     raise TakedownError(f"no sidecar in {assets} matches {digest}")
 
 
+def stamp_sidecar(assets: pathlib.Path, asset: pathlib.Path, digest: str) -> pathlib.Path:
+    for path in sorted(assets.glob("*.json")):
+        try:
+            sidecar = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise TakedownError(f"invalid sidecar {path}: {error}") from error
+        if sidecar.get("digest") != digest:
+            continue
+        asset_digest = sidecar.get("asset_digest")
+        size = sidecar.get("asset_size")
+        if not isinstance(asset_digest, str) or not isinstance(size, int):
+            raise TakedownError(f"sidecar {path} has no asset_digest or asset_size")
+        data = asset.read_bytes()
+        actual = "sha256:" + hashlib.sha256(data).hexdigest()
+        if actual != asset_digest:
+            raise TakedownError(f"asset {asset} is {actual}, not {asset_digest}")
+        try:
+            manifest_bytes, _, _, _ = read_archive(asset, asset_digest, size)
+            content = content_digest(manifest_bytes)
+        except ContentError as error:
+            raise TakedownError(str(error)) from error
+        existing = sidecar.get("content_digest")
+        if isinstance(existing, str) and existing != content:
+            raise TakedownError(
+                f"sidecar {path} has content digest {existing}, not {content}"
+            )
+        sidecar["content_digest"] = content
+        path.write_bytes(compact_json(sidecar))
+        return path
+    raise TakedownError(f"no sidecar in {assets} matches {digest}")
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
@@ -102,6 +142,11 @@ def main(argv: list[str] | None = None) -> int:
                     raise TakedownError(f"--{field} is required with --check")
             check_record(args.repo, args.namespace, args.name, args.digest)
             print(f"recorded: {args.namespace}/{args.name} {args.digest}")
+            return 0
+        if args.stamp:
+            if args.assets is None or args.asset is None:
+                raise TakedownError("--assets and --asset are required with --stamp")
+            print(stamp_sidecar(args.assets, args.asset, args.digest))
             return 0
         if args.assets is None:
             raise TakedownError("--assets is required with --names")

@@ -95,6 +95,68 @@ class PublishTests(unittest.TestCase):
         self.assertIn("already published", result.stdout)
         self.assertTrue(tar.is_file())
 
+    def test_the_sidecar_records_the_content_digest(self) -> None:
+        result = self.run_publish()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        sidecar = json.loads((self.release / "1.0.0.json").read_text(encoding="utf-8"))
+        self.assertIn("content_digest", sidecar)
+        self.assertTrue(sidecar["content_digest"].startswith("sha256:"))
+
+    def test_a_bumped_version_of_revoked_content_fails(self) -> None:
+        self.assertEqual(self.run_publish().returncode, 0)
+        sidecar = json.loads((self.release / "1.0.0.json").read_text(encoding="utf-8"))
+        repo = self.base / "repo"
+        repo.mkdir()
+        (repo / "revoked.toml").write_text(
+            "schema = 1\n"
+            "[[revoked]]\n"
+            'namespace = "i-zhirov"\n'
+            'name = "hello-dos"\n'
+            f'digest = "{sidecar["digest"]}"\n'
+            'reason = "test"\n'
+            'decided_at = "2026-11-23T00:00:00Z"\n',
+            encoding="utf-8",
+        )
+        bumped = self.base / "bumped.tar"
+        bumped.write_bytes(
+            oci.build_image(
+                [oci.FREEDOS, oci.AGENT],
+                "i-zhirov/hello-dos:1.0.1",
+                created="2026-11-24T00:00:00Z",
+            )["tar"]
+        )
+        result = self.run_publish("1.0.1", bumped, "--repo", str(repo))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("content is revoked", result.stderr)
+        self.assertFalse((self.release / "1.0.1.json").exists())
+
+    def test_changed_content_can_be_published_under_a_new_version(self) -> None:
+        self.assertEqual(self.run_publish().returncode, 0)
+        sidecar = json.loads((self.release / "1.0.0.json").read_text(encoding="utf-8"))
+        repo = self.base / "repo"
+        repo.mkdir()
+        (repo / "revoked.toml").write_text(
+            "schema = 1\n"
+            "[[revoked]]\n"
+            'namespace = "i-zhirov"\n'
+            'name = "hello-dos"\n'
+            f'digest = "{sidecar["digest"]}"\n'
+            'reason = "test"\n'
+            'decided_at = "2026-11-23T00:00:00Z"\n',
+            encoding="utf-8",
+        )
+        changed = self.base / "changed.tar"
+        changed.write_bytes(
+            oci.build_image(
+                [oci.AGENT],
+                "i-zhirov/hello-dos:1.0.1",
+                layer_digest="sha256:" + "d" * 64,
+            )["tar"]
+        )
+        result = self.run_publish("1.0.1", changed, "--repo", str(repo))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.release / "1.0.1.json").is_file())
+
     def test_a_revoked_current_digest_is_not_republished(self) -> None:
         self.assertEqual(self.run_publish().returncode, 0)
         sidecar = json.loads((self.release / "1.0.0.json").read_text(encoding="utf-8"))

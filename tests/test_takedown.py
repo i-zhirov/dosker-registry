@@ -10,6 +10,7 @@ import tempfile
 import unittest
 
 from tests import support
+from tests.fixtures import oci
 
 DIGEST = "sha256:" + "a" * 64
 OTHER = "sha256:" + "c" * 64
@@ -68,6 +69,27 @@ class TakedownTests(unittest.TestCase):
         result = self.run_helper("--names", "--assets", str(self.assets), "--digest", DIGEST)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), f"{ASSET}.tar\t1.0.0.json")
+
+    def test_stamp_records_the_content_digest(self) -> None:
+        built = oci.build_image([oci.AGENT], "i-zhirov/hello-dos:1.0.0")
+        tar = self.root / "image.tar"
+        tar.write_bytes(built["tar"])
+        sidecar = {
+            "version": "1.0.0",
+            "digest": built["manifest_digest"],
+            "asset_digest": oci.digest_bytes(built["tar"]),
+            "asset_size": len(built["tar"]),
+        }
+        path = self.assets / "1.0.0.json"
+        path.write_text(json.dumps(sidecar), encoding="utf-8")
+        result = self.run_helper(
+            "--stamp", "--assets", str(self.assets), "--asset", str(tar),
+            "--digest", built["manifest_digest"],
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        stamped = json.loads(path.read_text(encoding="utf-8"))
+        self.assertIn("content_digest", stamped)
+        self.assertIn(str(path), result.stdout)
 
     def test_names_uses_the_release_asset_name(self) -> None:
         published = self.root / "release-assets.json"

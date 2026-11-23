@@ -64,6 +64,33 @@ jobs:
             --release-assets "$RUNNER_TEMP/release-assets.json")"
           echo "tar=${names%%$'\t'*}" >> "$GITHUB_OUTPUT"
 
+      - name: Download the tar
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.namespace }}-${{ inputs.name }}"
+          mkdir -p "$RUNNER_TEMP/tar"
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+            --pattern "${{ steps.names.outputs.tar }}" \
+            --dir "$RUNNER_TEMP/tar" --clobber
+
+      - name: Stamp the sidecar
+        id: stamp
+        run: |
+          set -euo pipefail
+          sidecar="$(python3 scripts/takedown.py \
+            --stamp \
+            --assets "$RUNNER_TEMP/sidecars" \
+            --asset "$RUNNER_TEMP/tar/${{ steps.names.outputs.tar }}" \
+            --digest "${{ inputs.digest }}")"
+          echo "sidecar=$sidecar" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the stamped sidecar
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.namespace }}-${{ inputs.name }}"
+          gh release upload "$tag" "${{ steps.stamp.outputs.sidecar }}" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
       - name: Delete the tar
         run: |
           set -euo pipefail

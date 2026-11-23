@@ -87,9 +87,17 @@ def _tar(members: dict[str, bytes]) -> bytes:
     return buffer.getvalue()
 
 
-def build_image(licenses: list[dict], ref_name: str) -> dict:
+def build_image(
+    licenses: list[dict],
+    ref_name: str,
+    created: str | None = None,
+    layer_digest: str | None = None,
+) -> dict:
     """Build one OCI image tar and return its bytes and digests."""
-    config_bytes = canonical({"schema_version": 1, "licenses": licenses})
+    config = {"schema_version": 1, "licenses": licenses}
+    if created is not None:
+        config["created"] = created
+    config_bytes = canonical(config)
     config_digest = digest_bytes(config_bytes)
     manifest = {
         "schemaVersion": 2,
@@ -99,7 +107,17 @@ def build_image(licenses: list[dict], ref_name: str) -> dict:
             "digest": config_digest,
             "size": len(config_bytes),
         },
-        "layers": [],
+        "layers": (
+            [
+                {
+                    "mediaType": "application/vnd.oci.image.layer.v1.tar",
+                    "digest": layer_digest,
+                    "size": 1,
+                }
+            ]
+            if layer_digest is not None
+            else []
+        ),
     }
     manifest_bytes = canonical(manifest)
     manifest_digest = digest_bytes(manifest_bytes)

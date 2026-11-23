@@ -17,6 +17,10 @@ import tomllib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+from content import ContentError, content_digest  # noqa: E402
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
 from generate_site import (  # noqa: E402
     SiteError,
     compact_json,
@@ -42,19 +46,35 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def is_revoked(repo: pathlib.Path, namespace: str, name: str, digest: str) -> bool:
+def revoked_digests(repo: pathlib.Path, namespace: str, name: str) -> set[str]:
     path = repo / "revoked.toml"
     if not path.is_file():
-        return False
+        return set()
     data = tomllib.loads(path.read_text(encoding="utf-8"))
-    for record in data.get("revoked", []):
+    return {
+        record["digest"]
+        for record in data.get("revoked", [])
         if (
             record.get("namespace"),
             record.get("name"),
-            record.get("digest"),
-        ) == (namespace, name, digest):
-            return True
-    return False
+        ) == (namespace, name)
+        and isinstance(record.get("digest"), str)
+    }
+
+
+def load_existing(release_dir: pathlib.Path) -> dict[str, dict]:
+    existing: dict[str, dict] = {}
+    if not release_dir.is_dir():
+        return existing
+    for path in sorted(release_dir.glob("*.json")):
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise SiteError(f"invalid sidecar {path}: {error}") from error
+        version = value.get("version") if isinstance(value, dict) else None
+        if isinstance(version, str):
+            existing[version] = value
+    return existing
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -65,9 +85,25 @@ def main(argv: list[str] | None = None) -> int:
         manifest_bytes, config_bytes, manifest_digest, config_digest = read_archive(
             args.asset, asset_digest, len(data)
         )
-        del manifest_bytes
         namespace, name = args.image.split("/", 1)
-        if is_revoked(args.repo, namespace, name, manifest_digest):
+        revoked = revoked_digests(args.repo, namespace, name)
+        content = content_digest(manifest_bytes)
+        existing = load_existing(args.release_dir)
+        if args.version in existing and existing[args.version].get("digest") in revoked:
+            print(f"skipping revoked {args.image} {existing[args.version]['digest']}")
+            return 0
+        revoked_content = {
+            sidecar["content_digest"]
+            for sidecar in existing.values()
+            if sidecar.get("digest") in revoked
+            and isinstance(sidecar.get("content_digest"), str)
+        }
+        if content in revoked_content:
+            raise SiteError(
+                f"image {args.image} content is revoked; "
+                "change the content before publishing a new version"
+            )
+        if manifest_digest in revoked:
             print(f"skipping revoked {args.image} {manifest_digest}")
             return 0
         entries = json.loads(config_bytes).get("licenses")
@@ -82,6 +118,7 @@ def main(argv: list[str] | None = None) -> int:
             "published_at": args.published_at,
             "asset_digest": asset_digest,
             "asset_size": len(data),
+            "content_digest": content,
         }
 
         if args.dry_run:
@@ -109,6 +146,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"published {args.image}:{args.version} {manifest_digest}")
         return 0
     except SiteError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    except ContentError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     except OSError as error:

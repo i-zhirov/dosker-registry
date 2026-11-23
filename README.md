@@ -75,7 +75,9 @@ The generator reads the downloaded assets from one directory per release:
 Release into that layout. Two images can use the same version number without
 a sidecar collision.
 
-`scripts/publish.py` writes the version sidecar and copies the tar. It derives
+`scripts/publish.py` writes the version sidecar and copies the tar. The
+sidecar records the image content digest. It refuses a version already bound
+to a different digest and a new version of revoked content. It derives
 the manifest digest, the config digest, and the license summary from the tar.
 
 ## Contribution rules

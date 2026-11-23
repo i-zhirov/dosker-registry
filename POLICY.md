@@ -48,8 +48,10 @@ A revoked digest is removed from every tag and version list. The next site
 deploy omits it. A maintainer then dispatches the `takedown` workflow with the
 namespace, name, and digest. The workflow checks the record, deletes the image
 tar from the Release, keeps the version sidecar, and redeploys Pages. A later
-publish skips a revoked current digest, so the tar is not restored. Local
-copies on user machines stay unchanged.
+publish skips a revoked current digest, so the tar is not restored. The
+version sidecar keeps the image content digest, so a later publish of the same
+image content under a new version is refused. Local copies on user machines
+stay unchanged.
 
 ## Signing
 

@@ -65,14 +65,15 @@ must provide the source location in its `SOURCE_URL` entry. The generated
 license record and the image page show that link with the FreeDOS entry. The
 current entry points to `https://github.com/FDOS`.
 
-The full source-offer wording for the site is still under review. The link is
-present, and no image may hide or override it.
+The source offer is the `SOURCE_URL` link in the license record and on the
+image page. The link points to the upstream FreeDOS source, and no image may
+hide or override it.
 
 ## DOSKER agent license
 
-The DOSKER agent is dual-licensed under `MIT OR Apache-2.0`. The `dosker`
-release does not include `DOSKER.EXE` today. The way registry CI obtains the
-agent binary is still open.
+The DOSKER agent is dual-licensed under `MIT OR Apache-2.0`. Registry CI
+builds `DOSKER.EXE` from the pinned `i-zhirov/dosker` source tag `v0.1.3` with
+OpenWatcom; the `dosker` release itself does not carry the agent.
 
 ## First image
 

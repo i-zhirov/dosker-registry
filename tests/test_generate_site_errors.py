@@ -15,7 +15,7 @@ from tests.fixtures import oci
 
 SITE_REPO = support.ROOT / "tests" / "fixtures" / "site-good"
 EPOCH = 1763900000
-REGISTRY_URL = "https://i-zhirov.github.io/doskerfile-registry"
+REGISTRY_URL = "https://i-zhirov.github.io/dosker-registry"
 
 
 class GenerateSiteErrorTests(unittest.TestCase):

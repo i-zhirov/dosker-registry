@@ -56,7 +56,7 @@ jobs:
   lint:
     name: Lint registry metadata
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - name: Check out
         uses: actions/checkout@v4
@@ -137,13 +137,16 @@ jobs:
           install -m 0755 "$binary" /usr/local/bin/dosker
           dosker --version
 
+      - name: Prepare the FreeDOS base and DOS agent
+        uses: ./.github/actions/prepare-image-base
+
       - name: Validate Doskerfiles, LICENSE entries, and tag uniqueness
         shell: bash
         env:
-          # The validator resolves the base from the local image store in this
-          # release. The base must be present locally until the network client
-          # lands. It does not build the image.
-          DOSKER_REGISTRY: https://i-zhirov.github.io/doskerfile-registry
+          # The prepare step builds the base from the pinned source. The
+          # validator reads it from the local image store; it does not build the
+          # image or run its Doskerfile steps.
+          DOSKER_REGISTRY: https://i-zhirov.github.io/dosker-registry
         run: |
           set -euo pipefail
           shopt -s nullglob

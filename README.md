@@ -90,6 +90,6 @@ takedown contact, the 7-day response window, and the unsigned-asset decision.
 
 ## Schema IDs
 
-The six schemas use the placeholder host `https://dosker.dev/schemas/`. Replace
+The six schemas use the placeholder host `https://i-zhirov.github.io/dosker-registry/schemas/`. Replace
 the `$id` host in `schemas/*.schema.json` after the final registry domain is
 chosen.

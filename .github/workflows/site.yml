@@ -9,7 +9,7 @@ permissions:
   id-token: write
 
 env:
-  REGISTRY_URL: "https://i-zhirov.github.io/doskerfile-registry"
+  REGISTRY_URL: "https://i-zhirov.github.io/dosker-registry"
 
 jobs:
   site:

@@ -1,0 +1,5 @@
+schema = 1
+version = "1.0.0"
+tags = ["latest"]
+description = "Minimal DOS environment that echoes a greeting."
+homepage = "https://example.org/hello-dos"

@@ -1,0 +1,3 @@
+FROM freedos:1.3
+
+LICENSE NAME=Bad SPDX=MIT STATUS=abandonware BASIS=good-faith EVIDENCE=https://example.org/evidence

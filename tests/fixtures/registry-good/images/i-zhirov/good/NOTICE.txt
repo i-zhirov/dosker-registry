@@ -1,0 +1,2 @@
+FreeDOS is distributed under the GNU General Public License, version 2.
+DOSKER is dual-licensed under MIT or Apache-2.0.

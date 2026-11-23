@@ -1,0 +1,204 @@
+# Build each changed image, upload the tar before the sidecar, then deploy Pages
+# only after every asset and site document exists.
+name: publish
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "images/**"
+      - "namespaces.toml"
+      - "revoked.toml"
+      - ".github/workflows/publish.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+env:
+  # Must be a release that contains `registry validate` and `registry check-final`.
+  DOSKER_VERSION: "0.1.3"
+  DOSKER_RELEASE: "https://github.com/i-zhirov/dosker/releases/download/v0.1.3"
+  REGISTRY_URL: "https://i-zhirov.github.io/doskerfile-registry"
+
+jobs:
+  changes:
+    name: Find changed images
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      images: ${{ steps.changed.outputs.images }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: List the image directories
+        id: changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            images="$(python3 -c 'import glob,json; print(json.dumps(sorted(glob.glob("images/*/*"))))')"
+          else
+            base="${{ github.event.before }}"
+            if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+              base="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
+            fi
+            images="$(git diff --name-only "$base" "${{ github.sha }}" -- images | python3 scripts/changed_images.py --json)"
+          fi
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.image }}
+    needs: changes
+    if: needs.changes.outputs.images != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.changes.outputs.images) }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download the pinned DOSker release
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="dosker-${DOSKER_VERSION}-linux-x86_64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$archive" "$DOSKER_RELEASE/$archive"
+          curl -fsSL -o "$RUNNER_TEMP/SHA256SUMS" "$DOSKER_RELEASE/SHA256SUMS"
+          (cd "$RUNNER_TEMP" && grep " ${archive}$" SHA256SUMS | sha256sum -c -)
+          mkdir -p "$RUNNER_TEMP/dosker-bin"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/dosker-bin"
+          binary="$(find "$RUNNER_TEMP/dosker-bin" -type f -name dosker -perm -u+x | head -n 1)"
+          if [ -z "$binary" ]; then
+            echo "::error::The DOSker release archive does not contain the dosker binary."
+            exit 1
+          fi
+          install -m 0755 "$binary" /usr/local/bin/dosker
+          dosker --version
+
+      - name: Build, check, and publish the image
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          image="${{ matrix.image }}"
+          version="$(python3 -c 'import sys,tomllib; print(tomllib.load(open(sys.argv[1],"rb"))["version"])' "$image/registry.toml")"
+          owner="$(basename "$(dirname "$image")")"
+          name="$(basename "$image")"
+          reference="$owner-$name:$version"
+
+          dosker build -t "$reference" "$image"
+          dosker save -o "$RUNNER_TEMP/$owner-$name.tar" "$reference"
+          dosker registry check-final "$reference"
+
+          release_dir="$RUNNER_TEMP/release/$owner-$name"
+          python3 scripts/publish.py \
+            --image "$owner/$name" \
+            --version "$version" \
+            --asset "$RUNNER_TEMP/$owner-$name.tar" \
+            --release-dir "$release_dir" \
+            --published-at "$(git log -1 --format=%cI)"
+
+          tag="$owner-$name"
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
+              --title "$owner/$name" --notes "Image release for $owner/$name"
+          fi
+          for asset in "$release_dir"/*.tar; do
+            gh release upload "$tag" "$asset" --repo "$GITHUB_REPOSITORY" --clobber
+          done
+          for asset in "$release_dir"/*.json; do
+            gh release upload "$tag" "$asset" --repo "$GITHUB_REPOSITORY" --clobber
+          done
+
+  site:
+    name: Generate and deploy Pages
+    needs:
+      - changes
+      - build
+    if: >-
+      always() &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install schema validator
+        run: pip install --disable-pip-version-check check-jsonschema
+
+      - name: Download the release inventory and assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/assets"
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases" | jq 'add // []' > "$RUNNER_TEMP/releases.json"
+          while IFS= read -r tag; do
+            mkdir -p "$RUNNER_TEMP/assets/$tag"
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+              --dir "$RUNNER_TEMP/assets/$tag" --clobber
+          done < <(gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName --jq '.[].tagName')
+
+      - name: Generate the site
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/generate_site.py \
+            --repo . \
+            --releases "$RUNNER_TEMP/releases.json" \
+            --assets "$RUNNER_TEMP/assets" \
+            --out _site \
+            --epoch "$(git log -1 --format=%ct)" \
+            --registry-url "$REGISTRY_URL"
+
+      - name: Check the generated documents
+        shell: bash
+        run: scripts/check_site.sh _site
+
+      - name: Write the custom domain
+        if: vars.REGISTRY_DOMAIN != ''
+        shell: bash
+        run: echo "${{ vars.REGISTRY_DOMAIN }}" > _site/CNAME
+
+      - name: Upload the Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

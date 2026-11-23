@@ -12,6 +12,7 @@ on:
       - "revoked.toml"
       - "schemas/**"
       - ".github/workflows/validate.yml"
+      - ".github/actions/**"
 
 permissions:
   contents: read

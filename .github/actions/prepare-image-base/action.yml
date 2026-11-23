@@ -62,4 +62,4 @@ runs:
         mkdir -p "$RUNNER_TEMP/base"
         printf 'FROM freedos:1.3\nMACHINE memory=16M\nENGINE qemu\nREQUIRES boot,serial,headless\nCMD ECHO\n' > "$RUNNER_TEMP/base/Doskerfile"
         dosker build -t base-prep "$RUNNER_TEMP/base"
-        dosker remove base-prep || true
+        dosker rmi base-prep || true

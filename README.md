@@ -80,6 +80,32 @@ sidecar records the image content digest. It refuses a version already bound
 to a different digest and a new version of revoked content. It derives
 the manifest digest, the config digest, and the license summary from the tar.
 
+## Republishing after a takedown
+
+A takedown records the revoked version's manifest digest in `revoked.toml`. The
+version sidecar also carries a `content_digest`: the digest of the ordered
+image layer digests. It identifies the files the image carries and ignores
+build timestamps and history, so a rebuild that only changes the manifest
+digest still matches.
+
+The publisher follows these rules:
+
+- The same revoked version is skipped, not republished.
+- A new version with the same content is refused. The build fails with
+  `image <owner>/<name> content is revoked; change the content before
+  publishing a new version`. Bumping `version` in `registry.toml`, or changing
+  the description, tags, `ENV`, or `CMD`, does not change the content digest.
+- A new version with genuinely new content is allowed. Change the files the
+  image carries (a `COPY` input, the notice, or a `RUN` that writes different
+  files), bump `version` in `registry.toml`, and open a pull request. The new
+  content digest differs, so the new version publishes; the old version stays
+  revoked.
+
+The takedown workflow stamps the sidecar of an older version from its tar
+before it deletes the tar, so the content digest is available for every later
+publish. The content digest is an internal release-sidecar field; the public
+catalog and license documents are unchanged.
+
 ## Contribution rules
 
 - The owner directory must match a proven entry in `namespaces.toml`.
@@ -95,6 +121,5 @@ takedown contact, the 7-day response window, and the unsigned-asset decision.
 
 ## Schema IDs
 
-The six schemas use the placeholder host `https://i-zhirov.github.io/dosker-registry/schemas/`. Replace
-the `$id` host in `schemas/*.schema.json` after the final registry domain is
-chosen.
+The six schemas use `https://i-zhirov.github.io/dosker-registry/schemas/` as
+their `$id` host.

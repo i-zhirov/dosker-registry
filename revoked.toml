@@ -1,3 +1,8 @@
 schema = 1
 
-revoked = []
+[[revoked]]
+namespace = "i-zhirov"
+name = "takedown-test"
+digest = "sha256:487aef351d55c6aab285ff7904897a4b8988fa72f6036c5af621bc3c03abb305"
+reason = "Takedown workflow content-immutability exercise"
+decided_at = "2026-11-23T20:24:49Z"

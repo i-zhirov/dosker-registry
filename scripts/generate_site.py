@@ -325,13 +325,17 @@ class Generator:
             for asset in assets
             if isinstance(asset.get("name"), str) and asset["name"].endswith(".json")
         }
-        tars = {
-            asset["name"][: -len(".tar")]: asset
-            for asset in assets
-            if isinstance(asset.get("name"), str)
-            and asset["name"].endswith(".tar")
-            and DIGEST.fullmatch(asset["name"][: -len(".tar")])
-        }
+        tars = {}
+        for asset in assets:
+            if not isinstance(asset.get("name"), str) or not asset["name"].endswith(".tar"):
+                continue
+            digest = asset.get("digest")
+            if isinstance(digest, str) and DIGEST.fullmatch(digest):
+                tars[digest] = asset
+                continue
+            legacy = asset["name"][: -len(".tar")]
+            if DIGEST.fullmatch(legacy):
+                tars[legacy] = asset
 
         if current_version not in sidecars:
             raise SiteError(f"image {namespace}/{name} has no sidecar for {current_version}")
@@ -374,10 +378,10 @@ class Generator:
         if not isinstance(asset_size, int) or asset_size < 1:
             raise SiteError(f"sidecar {sidecar_path} has an invalid asset size")
 
-        tar_name = f"{asset_digest}.tar"
         tar = tars.get(asset_digest)
         if tar is None:
-            raise SiteError(f"release {namespace}-{name} has no asset {tar_name}")
+            raise SiteError(f"release {namespace}-{name} has no asset {asset_digest}.tar")
+        tar_name = tar["name"]
         if tar.get("size") is not None and tar["size"] != asset_size:
             raise SiteError(f"release size for {tar_name} does not match the sidecar")
         if tar.get("digest") is not None and tar["digest"] != asset_digest:

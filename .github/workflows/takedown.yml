@@ -54,10 +54,14 @@ jobs:
         id: names
         run: |
           set -euo pipefail
+          tag="${{ inputs.namespace }}-${{ inputs.name }}"
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
+            > "$RUNNER_TEMP/release-assets.json"
           names="$(python3 scripts/takedown.py \
             --names \
             --assets "$RUNNER_TEMP/sidecars" \
-            --digest "${{ inputs.digest }}")"
+            --digest "${{ inputs.digest }}" \
+            --release-assets "$RUNNER_TEMP/release-assets.json")"
           echo "tar=${names%%$'\t'*}" >> "$GITHUB_OUTPUT"
 
       - name: Delete the tar

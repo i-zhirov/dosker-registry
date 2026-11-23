@@ -149,6 +149,27 @@ class GenerateSiteErrorTests(unittest.TestCase):
             (self.out / "v1" / "i-zhirov" / "hello-dos" / "versions" / f"sha256-{hex_digest}").exists()
         )
 
+    def test_a_sanitized_tar_name_is_found_by_digest(self) -> None:
+        inventory = self.inventory()
+        assets = self.release_assets(inventory, "i-zhirov-hello-dos")
+        tar = next(asset for asset in assets if asset["name"].endswith(".tar"))
+        old_name = tar["name"]
+        old = self.assets / "i-zhirov-hello-dos" / old_name
+        new_name = "sha256." + old_name.split(":", 1)[1]
+        old.rename(old.with_name(new_name))
+        tar["browser_download_url"] = tar["browser_download_url"].replace(old_name, new_name)
+        tar["name"] = new_name
+        self.write_inventory(inventory)
+
+        self.generate()
+
+        index = json.loads(
+            (self.out / "v1" / "i-zhirov" / "hello-dos" / "index.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertTrue(index["versions"][0]["asset_url"].endswith(new_name))
+
     def test_a_revoked_current_version_omits_the_image_with_older_live_versions(self) -> None:
         assets, _ = oci.build_version_assets(
             self.assets,

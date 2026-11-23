@@ -26,6 +26,11 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="registry checkout root",
     )
     parser.add_argument("--assets", type=pathlib.Path, help="directory of downloaded sidecars")
+    parser.add_argument(
+        "--release-assets",
+        type=pathlib.Path,
+        help="release assets JSON from gh release view",
+    )
     parser.add_argument("--namespace")
     parser.add_argument("--name")
     parser.add_argument("--digest", required=True)
@@ -56,7 +61,9 @@ def check_record(repo: pathlib.Path, namespace: str, name: str, digest: str) -> 
     )
 
 
-def sidecar_names(assets: pathlib.Path, digest: str) -> tuple[str, str]:
+def sidecar_names(
+    assets: pathlib.Path, digest: str, release_assets: pathlib.Path | None = None
+) -> tuple[str, str]:
     for path in sorted(assets.glob("*.json")):
         try:
             sidecar = json.loads(path.read_text(encoding="utf-8"))
@@ -68,7 +75,21 @@ def sidecar_names(assets: pathlib.Path, digest: str) -> tuple[str, str]:
         version = sidecar.get("version")
         if not isinstance(asset_digest, str) or not isinstance(version, str):
             raise TakedownError(f"sidecar {path} has no asset_digest or version")
-        return f"{asset_digest}.tar", f"{version}.json"
+        tar = f"{asset_digest}.tar"
+        if release_assets is not None:
+            try:
+                published = json.loads(release_assets.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as error:
+                raise TakedownError(f"invalid release assets JSON: {error}") from error
+            for asset in published.get("assets", []):
+                if (
+                    asset.get("digest") == asset_digest
+                    and isinstance(asset.get("name"), str)
+                    and asset["name"].endswith(".tar")
+                ):
+                    tar = asset["name"]
+                    break
+        return tar, f"{version}.json"
     raise TakedownError(f"no sidecar in {assets} matches {digest}")
 
 
@@ -84,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.assets is None:
             raise TakedownError("--assets is required with --names")
-        tar, sidecar = sidecar_names(args.assets, args.digest)
+        tar, sidecar = sidecar_names(args.assets, args.digest, args.release_assets)
         print(f"{tar}\t{sidecar}")
         return 0
     except TakedownError as error:

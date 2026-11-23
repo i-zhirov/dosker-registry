@@ -69,6 +69,21 @@ class TakedownTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), f"{ASSET}.tar\t1.0.0.json")
 
+    def test_names_uses_the_release_asset_name(self) -> None:
+        published = self.root / "release-assets.json"
+        published.write_text(
+            json.dumps(
+                {"assets": [{"name": "sha256.bbb.tar", "digest": ASSET}]}
+            ),
+            encoding="utf-8",
+        )
+        result = self.run_helper(
+            "--names", "--assets", str(self.assets), "--digest", DIGEST,
+            "--release-assets", str(published),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "sha256.bbb.tar\t1.0.0.json")
+
     def test_names_rejects_a_missing_sidecar(self) -> None:
         result = self.run_helper("--names", "--assets", str(self.assets), "--digest", OTHER)
         self.assertEqual(result.returncode, 1)

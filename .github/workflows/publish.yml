@@ -13,6 +13,9 @@ on:
       - ".github/workflows/publish.yml"
       - ".github/workflows/site.yml"
       - ".github/actions/**"
+      - "scripts/**"
+      - "site/**"
+      - "schemas/**"
   workflow_dispatch:
 
 permissions:

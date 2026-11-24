@@ -3,7 +3,7 @@
 This repository holds the text that defines the DOSker image registry. It is a
 separate repository from the `dosker` code repository. The live site is
 <https://i-zhirov.github.io/dosker-registry/>; the pinned DOSKer release is
-`0.1.4`.
+`0.1.5`.
 
 ## Layout
 

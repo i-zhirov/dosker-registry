@@ -23,8 +23,8 @@ concurrency:
 
 env:
   # Must be a release that contains `dosker registry validate`.
-  DOSKER_VERSION: "0.1.4"
-  DOSKER_RELEASE: "https://github.com/i-zhirov/dosker/releases/download/v0.1.4"
+  DOSKER_VERSION: "0.1.5"
+  DOSKER_RELEASE: "https://github.com/i-zhirov/dosker/releases/download/v0.1.5"
 
 jobs:
   guard:

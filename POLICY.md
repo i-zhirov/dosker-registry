@@ -79,7 +79,7 @@ compiled `DOSKER.EXE` also contains the Open Watcom C runtime. Open Watcom is
 distributed under the Sybase Open Watcom Public License, which covers the
 runtime modules in the binary; the project source remains under `MIT OR
 Apache-2.0`. Registry CI builds `DOSKER.EXE` from the pinned `i-zhirov/dosker`
-source tag `v0.1.4` with OpenWatcom; the `dosker` release itself does not carry
+source tag `v0.1.5` with OpenWatcom; the `dosker` release itself does not carry
 the agent.
 
 ## First image

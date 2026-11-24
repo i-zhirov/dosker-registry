@@ -6,7 +6,13 @@ import hashlib
 import io
 import json
 import pathlib
+import sys
 import tarfile
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "scripts"))
+
+from asset_compression import asset_name, compress, decompress  # noqa: E402
+from content import content_digest  # noqa: E402
 
 FIXED_MTIME = 0
 FIXED_MODE = 0o644
@@ -67,6 +73,11 @@ def canonical(value: object) -> bytes:
 def digest_bytes(data: bytes) -> str:
     """Return the sha256 digest of some bytes."""
     return "sha256:" + hashlib.sha256(data).hexdigest()
+
+
+def decompress_asset(data: bytes) -> bytes:
+    """Return the uncompressed tar bytes of a fixture asset."""
+    return decompress(data)
 
 
 def _tar(members: dict[str, bytes]) -> bytes:
@@ -181,9 +192,10 @@ def build_version_assets(
     release_dir = assets_dir / release
     release_dir.mkdir(parents=True, exist_ok=True)
     built = build_image(licenses, ref)
-    asset_digest = digest_bytes(built["tar"])
-    tar_name = f"{asset_digest}.tar"
-    (release_dir / tar_name).write_bytes(built["tar"])
+    compressed = compress(built["tar"])
+    asset_digest = digest_bytes(compressed)
+    tar_name = asset_name(asset_digest)
+    (release_dir / tar_name).write_bytes(compressed)
     sidecar = {
         "version": version,
         "digest": built["manifest_digest"],
@@ -191,7 +203,8 @@ def build_version_assets(
         "license_summary": summary(licenses),
         "published_at": published_at,
         "asset_digest": asset_digest,
-        "asset_size": len(built["tar"]),
+        "asset_size": len(compressed),
+        "asset_compression": "zstd",
     }
     sidecar_bytes = canonical(sidecar)
     sidecar_name = f"{version}.json"
@@ -201,7 +214,7 @@ def build_version_assets(
         {
             "name": tar_name,
             "browser_download_url": f"{base}/{tar_name}",
-            "size": len(built["tar"]),
+            "size": len(compressed),
             "digest": asset_digest,
         },
         {

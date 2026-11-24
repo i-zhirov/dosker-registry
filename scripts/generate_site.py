@@ -23,6 +23,8 @@ import tomllib
 from datetime import datetime, timezone
 from string import Template
 
+from asset_compression import CompressionError, decompress
+
 SCHEMA = 1
 HANDLE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$")
 NAME = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,62}$")
@@ -90,9 +92,14 @@ def load_sidecar(path: pathlib.Path) -> dict:
         "published_at",
         "asset_digest",
         "asset_size",
+        "asset_compression",
     ):
         if field not in value:
             raise SiteError(f"sidecar {path} has no {field}")
+    if value["asset_compression"] != "zstd":
+        raise SiteError(
+            f"sidecar {path} has unsupported compression {value['asset_compression']!r}"
+        )
     return value
 
 
@@ -101,10 +108,38 @@ def blob_member(digest: str) -> str:
     return "blobs/sha256/" + digest.split(":", 1)[1]
 
 
+def read_tar_bytes(data: bytes, label: object) -> tuple[bytes, bytes, str, str]:
+    """Read the manifest and config from one uncompressed OCI layout tar."""
+    try:
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as archive:
+            layout = json.loads(archive.extractfile("oci-layout").read())
+            index = json.loads(archive.extractfile("index.json").read())
+            manifest_digest = index["manifests"][0]["digest"]
+            if not DIGEST.fullmatch(manifest_digest):
+                raise SiteError(f"invalid manifest digest in {label}")
+            manifest_bytes = archive.extractfile(blob_member(manifest_digest)).read()
+            manifest = json.loads(manifest_bytes)
+            config_digest = manifest["config"]["digest"]
+            if not DIGEST.fullmatch(config_digest):
+                raise SiteError(f"invalid config digest in {label}")
+            config_bytes = archive.extractfile(blob_member(config_digest)).read()
+    except (
+        AttributeError,
+        KeyError,
+        IndexError,
+        json.JSONDecodeError,
+        tarfile.TarError,
+    ) as error:
+        raise SiteError(f"invalid image archive at {label}: {error}") from error
+    if not isinstance(layout, dict) or layout.get("imageLayoutVersion") != "1.0.0":
+        raise SiteError(f"unsupported image layout in {label}")
+    return manifest_bytes, config_bytes, manifest_digest, config_digest
+
+
 def read_archive(
-    path: pathlib.Path, asset_digest: str, asset_size: int
+    path: pathlib.Path, asset_digest: str, asset_size: int, compression: str
 ) -> tuple[bytes, bytes, str, str]:
-    """Verify one image tar and return its manifest and config bytes and digests."""
+    """Verify one compressed image asset and return its manifest and config."""
     if not path.is_file():
         raise SiteError(f"missing asset: {path}")
     data = path.read_bytes()
@@ -113,31 +148,13 @@ def read_archive(
         raise SiteError(f"asset digest mismatch for {path}: {actual} != {asset_digest}")
     if len(data) != asset_size:
         raise SiteError(f"asset size mismatch for {path}: {len(data)} != {asset_size}")
-
+    if compression != "zstd":
+        raise SiteError(f"unsupported asset compression {compression!r} at {path}")
     try:
-        with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as archive:
-            members = {
-                member.name: archive.extractfile(member).read()
-                for member in archive.getmembers()
-                if member.isfile()
-            }
-        layout = json.loads(members["oci-layout"])
-        index = json.loads(members["index.json"])
-        manifest_digest = index["manifests"][0]["digest"]
-        if not DIGEST.fullmatch(manifest_digest):
-            raise SiteError(f"invalid manifest digest in {path}")
-        manifest_bytes = members[blob_member(manifest_digest)]
-        manifest = json.loads(manifest_bytes)
-        config_digest = manifest["config"]["digest"]
-        if not DIGEST.fullmatch(config_digest):
-            raise SiteError(f"invalid config digest in {path}")
-        config_bytes = members[blob_member(config_digest)]
-    except (KeyError, IndexError, json.JSONDecodeError, tarfile.TarError) as error:
-        raise SiteError(f"invalid image archive at {path}: {error}") from error
-
-    if layout.get("imageLayoutVersion") != "1.0.0":
-        raise SiteError(f"unsupported image layout in {path}")
-    return manifest_bytes, config_bytes, manifest_digest, config_digest
+        decoded = decompress(data)
+    except CompressionError as error:
+        raise SiteError(f"invalid zstd asset at {path}: {error}") from error
+    return read_tar_bytes(decoded, path)
 
 
 def license_summary(entries: list[dict], label: str) -> str:
@@ -327,15 +344,17 @@ class Generator:
         }
         tars = {}
         for asset in assets:
-            if not isinstance(asset.get("name"), str) or not asset["name"].endswith(".tar"):
+            if not isinstance(asset.get("name"), str) or not asset["name"].endswith(
+                ".tar.zst"
+            ):
                 continue
             digest = asset.get("digest")
             if isinstance(digest, str) and DIGEST.fullmatch(digest):
                 tars[digest] = asset
                 continue
-            legacy = asset["name"][: -len(".tar")]
-            if DIGEST.fullmatch(legacy):
-                tars[legacy] = asset
+            name_digest = asset["name"][: -len(".tar.zst")]
+            if DIGEST.fullmatch(name_digest):
+                tars[name_digest] = asset
 
         if current_version not in sidecars:
             raise SiteError(f"image {namespace}/{name} has no sidecar for {current_version}")
@@ -380,15 +399,18 @@ class Generator:
 
         tar = tars.get(asset_digest)
         if tar is None:
-            raise SiteError(f"release {namespace}-{name} has no asset {asset_digest}.tar")
+            raise SiteError(
+                f"release {namespace}-{name} has no asset {asset_digest}.tar.zst"
+            )
         tar_name = tar["name"]
         if tar.get("size") is not None and tar["size"] != asset_size:
             raise SiteError(f"release size for {tar_name} does not match the sidecar")
         if tar.get("digest") is not None and tar["digest"] != asset_digest:
             raise SiteError(f"release digest for {tar_name} does not match the sidecar")
 
+        compression = sidecar["asset_compression"]
         manifest_bytes, config_bytes, manifest_digest, config_digest = read_archive(
-            asset_dir / tar_name, asset_digest, asset_size
+            asset_dir / tar_name, asset_digest, asset_size, compression
         )
         if manifest_digest != sidecar["digest"]:
             raise SiteError(f"sidecar {sidecar_path} names digest {sidecar['digest']}")
@@ -421,6 +443,7 @@ class Generator:
             "asset_url": download,
             "asset_digest": asset_digest,
             "asset_size": asset_size,
+            "asset_compression": compression,
             "published_at": sidecar["published_at"],
             "license_summary": summary,
             "licenses_url": f"{base}/licenses.json",

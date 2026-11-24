@@ -28,8 +28,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install schema validator
-        run: pip install --disable-pip-version-check check-jsonschema
+      - name: Install the Python dependencies
+        run: pip install --disable-pip-version-check -r requirements.txt check-jsonschema
 
       - name: Download the release inventory and assets
         shell: bash

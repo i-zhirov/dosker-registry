@@ -51,14 +51,16 @@ class PublishTests(unittest.TestCase):
     def test_a_first_publish_writes_the_tar_and_the_sidecar(self) -> None:
         result = self.run_publish()
         self.assertEqual(result.returncode, 0, result.stderr)
-        tar = next(self.release.glob("*.tar"))
-        self.assertEqual(tar.read_bytes(), self.asset.read_bytes())
+        asset = next(self.release.glob("*.tar.zst"))
+        compressed = asset.read_bytes()
+        self.assertEqual(oci.decompress_asset(compressed), self.asset.read_bytes())
         sidecar = json.loads((self.release / "1.0.0.json").read_text(encoding="utf-8"))
         self.assertEqual(sidecar["version"], "1.0.0")
         self.assertEqual(sidecar["license_summary"], "redistributable")
         self.assertEqual(sidecar["published_at"], PUBLISHED_AT)
-        self.assertEqual(sidecar["asset_digest"], tar.name[: -len(".tar")])
-        self.assertEqual(sidecar["asset_size"], self.asset.stat().st_size)
+        self.assertEqual(sidecar["asset_digest"], oci.digest_bytes(compressed))
+        self.assertEqual(sidecar["asset_size"], len(compressed))
+        self.assertEqual(sidecar["asset_compression"], "zstd")
 
     def test_a_second_publish_is_a_noop(self) -> None:
         self.assertEqual(self.run_publish().returncode, 0)
@@ -86,9 +88,29 @@ class PublishTests(unittest.TestCase):
         self.assertTrue((self.release / "1.0.0.json").is_file())
         self.assertTrue((self.release / "1.0.1.json").is_file())
 
+    def test_a_legacy_sidecar_is_refused(self) -> None:
+        self.assertEqual(self.run_publish().returncode, 0)
+        sidecar_path = self.release / "1.0.0.json"
+        sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+        del sidecar["asset_compression"]
+        sidecar_path.write_text(json.dumps(sidecar), encoding="utf-8")
+        result = self.run_publish()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("not migrated to zstd", result.stderr)
+
+    def test_a_changed_asset_digest_fails(self) -> None:
+        self.assertEqual(self.run_publish().returncode, 0)
+        sidecar_path = self.release / "1.0.0.json"
+        sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+        sidecar["asset_digest"] = "sha256:" + "0" * 64
+        sidecar_path.write_text(json.dumps(sidecar), encoding="utf-8")
+        result = self.run_publish()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("is bound to asset", result.stderr)
+
     def test_a_missing_tar_is_restored_for_an_existing_sidecar(self) -> None:
         self.assertEqual(self.run_publish().returncode, 0)
-        tar = next(self.release.glob("*.tar"))
+        tar = next(self.release.glob("*.tar.zst"))
         tar.unlink()
         result = self.run_publish()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -160,7 +182,7 @@ class PublishTests(unittest.TestCase):
     def test_a_revoked_current_digest_is_not_republished(self) -> None:
         self.assertEqual(self.run_publish().returncode, 0)
         sidecar = json.loads((self.release / "1.0.0.json").read_text(encoding="utf-8"))
-        tar = next(self.release.glob("*.tar"))
+        tar = next(self.release.glob("*.tar.zst"))
         tar.unlink()
         repo = self.base / "repo"
         repo.mkdir()

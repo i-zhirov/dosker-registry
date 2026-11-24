@@ -40,7 +40,7 @@ class SharedSiteWorkflowTest(unittest.TestCase):
         text = read_workflow("takedown.yml")
         self.assertIn("--stamp", text)
         self.assertIn("gh release upload", text)
-        self.assertIn("Download the tar", text)
+        self.assertIn("Download the asset", text)
 
     def test_takedown_calls_the_site_workflow(self):
         text = read_workflow("takedown.yml")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write the version sidecar and copy the image tar for a release.
+"""Write the version sidecar and the compressed image asset for a release.
 
 The publisher is idempotent. It refuses a version that is already bound to a
 different digest. A license correction is a new version.
@@ -11,21 +11,18 @@ import argparse
 import hashlib
 import json
 import pathlib
-import shutil
 import sys
 import tomllib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+from asset_compression import asset_name, compress  # noqa: E402
 from content import ContentError, content_digest  # noqa: E402
-
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-
 from generate_site import (  # noqa: E402
     SiteError,
     compact_json,
     license_summary,
-    read_archive,
+    read_tar_bytes,
 )
 
 
@@ -80,11 +77,13 @@ def load_existing(release_dir: pathlib.Path) -> dict[str, dict]:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
-        data = args.asset.read_bytes()
-        asset_digest = "sha256:" + hashlib.sha256(data).hexdigest()
-        manifest_bytes, config_bytes, manifest_digest, config_digest = read_archive(
-            args.asset, asset_digest, len(data)
+        tar_data = args.asset.read_bytes()
+        manifest_bytes, config_bytes, manifest_digest, config_digest = read_tar_bytes(
+            tar_data, args.asset
         )
+        compressed = compress(tar_data)
+        asset_digest = "sha256:" + hashlib.sha256(compressed).hexdigest()
+        asset_size = len(compressed)
         namespace, name = args.image.split("/", 1)
         revoked = revoked_digests(args.repo, namespace, name)
         content = content_digest(manifest_bytes)
@@ -117,7 +116,8 @@ def main(argv: list[str] | None = None) -> int:
             "license_summary": summary,
             "published_at": args.published_at,
             "asset_digest": asset_digest,
-            "asset_size": len(data),
+            "asset_size": asset_size,
+            "asset_compression": "zstd",
             "content_digest": content,
         }
 
@@ -126,7 +126,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         args.release_dir.mkdir(parents=True, exist_ok=True)
-        tar_path = args.release_dir / f"{asset_digest}.tar"
+        asset_path = args.release_dir / asset_name(asset_digest)
         sidecar_path = args.release_dir / f"{args.version}.json"
 
         if sidecar_path.exists():
@@ -136,12 +136,23 @@ def main(argv: list[str] | None = None) -> int:
                     f"version {args.version} is bound to {existing.get('digest')}, "
                     f"not {manifest_digest}; bump the version"
                 )
-            if not tar_path.exists():
-                shutil.copyfile(args.asset, tar_path)
+            if existing.get("asset_compression") != "zstd":
+                raise SiteError(
+                    f"version {args.version} is not migrated to zstd; "
+                    "run scripts/migrate_assets.py"
+                )
+            if existing.get("asset_digest") != asset_digest:
+                raise SiteError(
+                    f"version {args.version} is bound to asset "
+                    f"{existing.get('asset_digest')}, not {asset_digest}; "
+                    "bump the version"
+                )
+            if not asset_path.exists():
+                asset_path.write_bytes(compressed)
             print(f"already published {args.image}:{args.version}")
             return 0
 
-        shutil.copyfile(args.asset, tar_path)
+        asset_path.write_bytes(compressed)
         sidecar_path.write_bytes(compact_json(sidecar))
         print(f"published {args.image}:{args.version} {manifest_digest}")
         return 0

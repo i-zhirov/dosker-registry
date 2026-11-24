@@ -12,6 +12,7 @@ import tomllib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+from asset_compression import asset_name  # noqa: E402
 from content import ContentError, content_digest  # noqa: E402
 from generate_site import compact_json, read_archive  # noqa: E402
 
@@ -81,9 +82,15 @@ def sidecar_names(
             continue
         asset_digest = sidecar.get("asset_digest")
         version = sidecar.get("version")
-        if not isinstance(asset_digest, str) or not isinstance(version, str):
-            raise TakedownError(f"sidecar {path} has no asset_digest or version")
-        tar = f"{asset_digest}.tar"
+        if (
+            not isinstance(asset_digest, str)
+            or not isinstance(version, str)
+            or sidecar.get("asset_compression") != "zstd"
+        ):
+            raise TakedownError(
+                f"sidecar {path} has no asset_digest, version, or zstd compression"
+            )
+        tar = asset_name(asset_digest)
         if release_assets is not None:
             try:
                 published = json.loads(release_assets.read_text(encoding="utf-8"))
@@ -93,7 +100,7 @@ def sidecar_names(
                 if (
                     asset.get("digest") == asset_digest
                     and isinstance(asset.get("name"), str)
-                    and asset["name"].endswith(".tar")
+                    and asset["name"].endswith(".tar.zst")
                 ):
                     tar = asset["name"]
                     break
@@ -111,14 +118,23 @@ def stamp_sidecar(assets: pathlib.Path, asset: pathlib.Path, digest: str) -> pat
             continue
         asset_digest = sidecar.get("asset_digest")
         size = sidecar.get("asset_size")
-        if not isinstance(asset_digest, str) or not isinstance(size, int):
-            raise TakedownError(f"sidecar {path} has no asset_digest or asset_size")
+        compression = sidecar.get("asset_compression")
+        if (
+            not isinstance(asset_digest, str)
+            or not isinstance(size, int)
+            or compression != "zstd"
+        ):
+            raise TakedownError(
+                f"sidecar {path} has no asset_digest, asset_size, or zstd compression"
+            )
         data = asset.read_bytes()
         actual = "sha256:" + hashlib.sha256(data).hexdigest()
         if actual != asset_digest:
             raise TakedownError(f"asset {asset} is {actual}, not {asset_digest}")
         try:
-            manifest_bytes, _, _, _ = read_archive(asset, asset_digest, size)
+            manifest_bytes, _, _, _ = read_archive(
+                asset, asset_digest, size, compression
+            )
             content = content_digest(manifest_bytes)
         except ContentError as error:
             raise TakedownError(str(error)) from error

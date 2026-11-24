@@ -90,8 +90,11 @@ class GenerateSiteTests(unittest.TestCase):
             index = json.loads(path.read_text(encoding="utf-8"))
             version = index["versions"][0]
             release = f"{index['namespace']}-{index['name']}"
+            asset_name = version["asset_url"].rsplit("/", 1)[1]
             members = oci.read_members(
-                (self.assets / release / f"{version['asset_digest']}.tar").read_bytes()
+                oci.decompress_asset(
+                    (self.assets / release / asset_name).read_bytes()
+                )
             )
             manifest = members["blobs/sha256/" + version["digest"].split(":", 1)[1]]
             config = members["blobs/sha256/" + version["config_digest"].split(":", 1)[1]]

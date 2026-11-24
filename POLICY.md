@@ -46,9 +46,10 @@ decided_at = "2026-11-22T12:00:00Z"
 
 A revoked digest is removed from every tag and version list. The next site
 deploy omits it. A maintainer then dispatches the `takedown` workflow with the
-namespace, name, and digest. The workflow checks the record, deletes the image
-tar from the Release, keeps the version sidecar, and redeploys Pages. A later
-publish skips a revoked current digest, so the tar is not restored. The
+namespace, name, and digest. The workflow checks the record, deletes the
+compressed asset tar from the Release, keeps the version sidecar, and redeploys
+Pages. A later publish skips a revoked current digest, so the asset tar is not
+restored. The
 version sidecar keeps the image content digest, so a later publish of the same
 image content under a new version is refused. Local copies on user machines
 stay unchanged.
@@ -56,9 +57,9 @@ stay unchanged.
 ## Signing
 
 Registry release assets are unsigned in the first version. The client verifies
-the SHA-256 digest of every manifest, config, and tar before it installs an
-image, so a tampered asset fails. Automated signing and attestation are
-deferred; this decision covers the first release.
+the SHA-256 digest of every manifest, config, and asset tar before it
+installs an image, so a tampered asset fails. Automated signing and
+attestation are deferred; this decision covers the first release.
 
 ## GPL source offer
 

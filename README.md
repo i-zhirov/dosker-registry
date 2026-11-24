@@ -13,8 +13,10 @@ revoked.toml                 takedown records
 images/<owner>/<name>/       Doskerfile, registry.toml, NOTICE.txt
 schemas/                     the six JSON schemas
 site/                        HTML templates and CSS
-scripts/                     validation, generation, and publish helpers
+scripts/                     validation, generation, publish, and
+                             migration helpers
 tests/                       unit tests and fixtures
+requirements.txt             pinned Python packages for the scripts
 .github/workflows/           validate, publish, site, and takedown
 .github/actions/             prepare-image-base
 ```
@@ -34,10 +36,12 @@ version. A rebuild that gives a new digest for an existing version fails.
 
 ## Check the repository locally
 
-The checks need Python 3.11 or newer, `check-jsonschema`, `actionlint`, and a
-`dosker` binary that contains `registry validate` and `registry check-final`.
+The checks need Python 3.11 or newer, `check-jsonschema`, `actionlint`, a
+`dosker` binary that contains `registry validate` and `registry check-final`,
+and the pinned packages in `requirements.txt`.
 
 ```sh
+python3 -m pip install -r requirements.txt
 python3 -m unittest discover -s tests
 scripts/validate.sh images
 scripts/validate_schemas.sh images
@@ -64,21 +68,22 @@ generation. Source `examples/hello-dos/setup.sh` in the `dosker` checkout first.
    schemas. It never runs `RUN`.
 3. A maintainer merges the pull request.
 4. `publish.yml` builds each changed image, saves the tar, runs
-   `dosker registry check-final`, uploads the tar, uploads the sidecar, and then
-   generates and deploys the site.
+   `dosker registry check-final`, compresses the asset, uploads the compressed
+   asset, uploads the sidecar, and then generates and deploys the site.
 5. A second run with the same version and digest changes nothing. A different
    digest for an existing version fails.
 
 The generator reads the downloaded assets from one directory per release:
-`<assets>/<owner>-<name>/<asset_digest>.tar` and
+`<assets>/<owner>-<name>/<asset_digest>.tar.zst` and
 `<assets>/<owner>-<name>/<version>.json`. The publish workflow downloads each
 Release into that layout. Two images can use the same version number without
 a sidecar collision.
 
-`scripts/publish.py` writes the version sidecar and copies the tar. The
-sidecar records the image content digest. It refuses a version already bound
-to a different digest and a new version of revoked content. It derives
-the manifest digest, the config digest, and the license summary from the tar.
+`scripts/publish.py` writes the version sidecar and compresses the tar with
+zstd. The sidecar records the image content digest and the asset compression.
+It refuses a version already bound to a different digest and a new version of
+revoked content. It derives the manifest digest, the config digest, and the
+license summary from the tar.
 
 ## Republishing after a takedown
 
@@ -101,10 +106,36 @@ The publisher follows these rules:
   content digest differs, so the new version publishes; the old version stays
   revoked.
 
-The takedown workflow stamps the sidecar of an older version from its tar
-before it deletes the tar, so the content digest is available for every later
-publish. The content digest is an internal release-sidecar field; the public
-catalog and license documents are unchanged.
+The takedown workflow stamps the sidecar of an older version from its
+compressed asset before it deletes the asset, so the content digest is
+available for every later publish. The content digest is an internal
+release-sidecar field; the public catalog and license documents are unchanged.
+
+## Migrate existing release assets
+
+`scripts/migrate_assets.py` is the one-time operator tool for the zstd asset
+migration. The publish, site, and takedown scripts do not use it and do not
+read the old format.
+
+Prepare mode reads the old tar and sidecar files. It writes the compressed
+asset and the updated sidecar to the output directory. It checks the old
+digest, size, manifest, config, and content digests, and it keeps the old tar.
+
+```sh
+python3 scripts/migrate_assets.py --prepare \
+  --assets <release-dir> --out <new-dir> --backup <backup-dir>
+```
+
+Cleanup mode checks the new sidecar and compressed asset, then prints each old
+tar name to delete. It does not delete anything.
+
+```sh
+python3 scripts/migrate_assets.py --cleanup \
+  --assets <release-dir> --backup <backup-dir>
+```
+
+Keep the backup directory and the old assets until the new site is live. Use
+the backup to restore the old sidecars if the cutover fails.
 
 ## Contribution rules
 

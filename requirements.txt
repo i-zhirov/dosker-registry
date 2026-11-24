@@ -1,0 +1,2 @@
+# Pinned so published compressed assets stay deterministic.
+zstandard==0.25.0

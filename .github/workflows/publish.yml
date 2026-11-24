@@ -1,4 +1,4 @@
-# Build each changed image, upload the tar before the sidecar, then deploy Pages
+# Build each changed image, upload the asset before the sidecar, then deploy Pages
 # only after every asset and site document exists.
 name: publish
 
@@ -80,6 +80,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install the Python dependencies
+        run: pip install --disable-pip-version-check -r requirements.txt
+
       - name: Download the pinned DOSker release
         shell: bash
         run: |
@@ -133,7 +136,7 @@ jobs:
             --published-at "$(git log -1 --format=%cI)"
 
           shopt -s nullglob
-          uploaded=("$release_dir"/*.tar "$release_dir"/*.json)
+          uploaded=("$release_dir"/*.tar.zst "$release_dir"/*.json)
           if ((${#uploaded[@]} == 0)); then
             echo "nothing to publish for $image"
             exit 0
@@ -142,7 +145,7 @@ jobs:
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
               --title "$owner/$name" --notes "Image release for $owner/$name"
           fi
-          for asset in "$release_dir"/*.tar; do
+          for asset in "$release_dir"/*.tar.zst; do
             gh release upload "$tag" "$asset" --repo "$GITHUB_REPOSITORY" --clobber
           done
           for asset in "$release_dir"/*.json; do

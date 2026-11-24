@@ -90,12 +90,12 @@ class GenerateSiteErrorTests(unittest.TestCase):
 
     def test_a_missing_asset_fails(self) -> None:
         release_dir = self.assets / "i-zhirov-hello-dos"
-        next(release_dir.glob("*.tar")).unlink()
+        next(release_dir.glob("*.tar.zst")).unlink()
         self.assert_fails("missing asset")
 
     def test_a_tampered_asset_fails(self) -> None:
         release_dir = self.assets / "i-zhirov-hello-dos"
-        with next(release_dir.glob("*.tar")).open("ab") as handle:
+        with next(release_dir.glob("*.tar.zst")).open("ab") as handle:
             handle.write(b"x")
         self.assert_fails("asset digest mismatch")
 
@@ -109,6 +109,13 @@ class GenerateSiteErrorTests(unittest.TestCase):
     def test_a_missing_current_sidecar_fails(self) -> None:
         (self.assets / "i-zhirov-hello-dos" / "1.0.0.json").unlink()
         self.assert_fails("invalid sidecar")
+
+    def test_a_sidecar_without_compression_fails(self) -> None:
+        sidecar = self.assets / "i-zhirov-hello-dos" / "1.0.0.json"
+        value = json.loads(sidecar.read_text(encoding="utf-8"))
+        del value["asset_compression"]
+        support.write_json(sidecar, value)
+        self.assert_fails("has no asset_compression")
 
     def test_an_image_without_tags_fails(self) -> None:
         self.replace(self.metadata("old-game"), 'tags = ["legacy"]', "tags = []")
@@ -131,7 +138,7 @@ class GenerateSiteErrorTests(unittest.TestCase):
         self.release_assets(inventory, "i-zhirov-hello-dos").extend(assets)
         self.write_inventory(inventory)
         self.revoke("i-zhirov", "hello-dos", digest)
-        revoked_tar = next(asset for asset in assets if asset["name"].endswith(".tar"))
+        revoked_tar = next(asset for asset in assets if asset["name"].endswith(".tar.zst"))
         (self.assets / "i-zhirov-hello-dos" / revoked_tar["name"]).unlink()
 
         self.generate()
@@ -149,13 +156,13 @@ class GenerateSiteErrorTests(unittest.TestCase):
             (self.out / "v1" / "i-zhirov" / "hello-dos" / "versions" / f"sha256-{hex_digest}").exists()
         )
 
-    def test_a_sanitized_tar_name_is_found_by_digest(self) -> None:
+    def test_an_asset_is_found_by_digest_when_the_name_differs(self) -> None:
         inventory = self.inventory()
         assets = self.release_assets(inventory, "i-zhirov-hello-dos")
-        tar = next(asset for asset in assets if asset["name"].endswith(".tar"))
+        tar = next(asset for asset in assets if asset["name"].endswith(".tar.zst"))
         old_name = tar["name"]
         old = self.assets / "i-zhirov-hello-dos" / old_name
-        new_name = "sha256." + old_name.split(":", 1)[1]
+        new_name = "published-" + old_name
         old.rename(old.with_name(new_name))
         tar["browser_download_url"] = tar["browser_download_url"].replace(old_name, new_name)
         tar["name"] = new_name
@@ -207,7 +214,7 @@ class GenerateSiteErrorTests(unittest.TestCase):
         sidecar = self.assets / "i-zhirov-old-game" / "1.0.0.json"
         value = json.loads(sidecar.read_text(encoding="utf-8"))
         self.revoke("i-zhirov", "old-game", value["digest"])
-        tar = self.assets / "i-zhirov-old-game" / f"{value['asset_digest']}.tar"
+        tar = self.assets / "i-zhirov-old-game" / f"{value['asset_digest'].replace(':', '.')}.tar.zst"
 
         self.generate()
 

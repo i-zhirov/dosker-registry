@@ -37,7 +37,14 @@ class TakedownTests(unittest.TestCase):
         self.assets = self.root / "assets"
         self.assets.mkdir()
         (self.assets / "1.0.0.json").write_text(
-            json.dumps({"version": "1.0.0", "digest": DIGEST, "asset_digest": ASSET}),
+            json.dumps(
+                {
+                    "version": "1.0.0",
+                    "digest": DIGEST,
+                    "asset_digest": ASSET,
+                    "asset_compression": "zstd",
+                }
+            ),
             encoding="utf-8",
         )
 
@@ -68,17 +75,19 @@ class TakedownTests(unittest.TestCase):
     def test_names_finds_the_tar_and_sidecar(self) -> None:
         result = self.run_helper("--names", "--assets", str(self.assets), "--digest", DIGEST)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), f"{ASSET}.tar\t1.0.0.json")
+        self.assertEqual(result.stdout.strip(), f"{ASSET.replace(':', '.')}.tar.zst\t1.0.0.json")
 
     def test_stamp_records_the_content_digest(self) -> None:
         built = oci.build_image([oci.AGENT], "i-zhirov/hello-dos:1.0.0")
-        tar = self.root / "image.tar"
-        tar.write_bytes(built["tar"])
+        compressed = oci.compress(built["tar"])
+        tar = self.root / "image.tar.zst"
+        tar.write_bytes(compressed)
         sidecar = {
             "version": "1.0.0",
             "digest": built["manifest_digest"],
-            "asset_digest": oci.digest_bytes(built["tar"]),
-            "asset_size": len(built["tar"]),
+            "asset_digest": oci.digest_bytes(compressed),
+            "asset_size": len(compressed),
+            "asset_compression": "zstd",
         }
         path = self.assets / "1.0.0.json"
         path.write_text(json.dumps(sidecar), encoding="utf-8")
@@ -95,7 +104,7 @@ class TakedownTests(unittest.TestCase):
         published = self.root / "release-assets.json"
         published.write_text(
             json.dumps(
-                {"assets": [{"name": "sha256.bbb.tar", "digest": ASSET}]}
+                {"assets": [{"name": "sha256.bbb.tar.zst", "digest": ASSET}]}
             ),
             encoding="utf-8",
         )
@@ -104,7 +113,7 @@ class TakedownTests(unittest.TestCase):
             "--release-assets", str(published),
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "sha256.bbb.tar\t1.0.0.json")
+        self.assertEqual(result.stdout.strip(), "sha256.bbb.tar.zst\t1.0.0.json")
 
     def test_names_rejects_a_missing_sidecar(self) -> None:
         result = self.run_helper("--names", "--assets", str(self.assets), "--digest", OTHER)

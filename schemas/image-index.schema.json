@@ -87,6 +87,7 @@
         "asset_url",
         "asset_digest",
         "asset_size",
+        "asset_compression",
         "published_at",
         "license_summary",
         "licenses_url"
@@ -119,6 +120,9 @@
         "asset_size": {
           "type": "integer",
           "minimum": 1
+        },
+        "asset_compression": {
+          "enum": ["zstd"]
         },
         "published_at": {
           "type": "string",
